@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 )
 
 type SQSQueue struct {
@@ -39,6 +40,8 @@ func NewSQSQueue(ctx context.Context, sqsName string) (*SQSQueue, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load default config: %w", err)
 	}
+
+	otelaws.AppendMiddlewares(&cfg.APIOptions)
 
 	sqsInstance := sqs.NewFromConfig(cfg)
 

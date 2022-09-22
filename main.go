@@ -14,6 +14,12 @@ func main() {
 	logger := log.Default()
 	ctx := context.Background()
 
+	closeFunc, err := ConfigureTracer(ctx)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer func() { _ = closeFunc() }()
+
 	queue, err := NewSQSQueue(ctx, "henrod")
 	if err != nil {
 		logger.Fatal(err)

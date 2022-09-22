@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type API struct {
@@ -50,7 +52,7 @@ func (api *API) CreateJob(w http.ResponseWriter, req *http.Request) {
 }
 
 func (api *API) Start(logger *log.Logger) error {
-	http.HandleFunc("/jobs", api.CreateJob)
+	http.Handle("/jobs", otelhttp.NewHandler(http.HandlerFunc(api.CreateJob), "CreateJob"))
 
 	logger.Printf("Starting HTTP API server: %s", api.address)
 	err := http.ListenAndServe(api.address, nil)
