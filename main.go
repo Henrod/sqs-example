@@ -14,7 +14,7 @@ func main() {
 	logger := log.Default()
 	ctx := context.Background()
 
-	queue, err := NewSQSQueue("henrod")
+	queue, err := NewSQSQueue(ctx, "henrod")
 	if err != nil {
 		logger.Fatal(err)
 	}

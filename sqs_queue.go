@@ -5,38 +5,44 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 type SQSQueue struct {
-	sqs    *sqs.SQS
+	sqs    *sqs.Client
 	sqsURL *string
 }
 
 const (
-	sqsEndpoint                 = "localhost:44566"
+	sqsEndpoint                 = "http://localhost:44566"
 	sqsRegion                   = "us-east-1"
 	sqsVisibilityTimeoutSeconds = 10
+	waitTime                    = time.Second
 )
 
-func NewSQSQueue(sqsName string) (*SQSQueue, error) {
-	sessionInstance, err := session.NewSessionWithOptions(session.Options{
-		Profile: "default",
-		Config: aws.Config{
-			Endpoint:   aws.String(sqsEndpoint),
-			Region:     aws.String(sqsRegion),
-			DisableSSL: aws.Bool(true),
-		},
+func NewSQSQueue(ctx context.Context, sqsName string) (*SQSQueue, error) {
+	localResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+		return aws.Endpoint{
+			PartitionID:   "aws",
+			URL:           sqsEndpoint,
+			SigningRegion: sqsRegion,
+		}, nil
 	})
+
+	cfg, err := config.LoadDefaultConfig(
+		ctx,
+		config.WithSharedConfigProfile("default"),
+		config.WithEndpointResolverWithOptions(localResolver),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create aws session: %w", err)
+		return nil, fmt.Errorf("failed to load default config: %w", err)
 	}
 
-	sqsInstance := sqs.New(sessionInstance)
+	sqsInstance := sqs.NewFromConfig(cfg)
 
-	urlResult, err := sqsInstance.GetQueueUrl(&sqs.GetQueueUrlInput{
+	urlResult, err := sqsInstance.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
 		QueueName: aws.String(sqsName),
 	})
 	if err != nil {
@@ -50,7 +56,7 @@ func NewSQSQueue(sqsName string) (*SQSQueue, error) {
 }
 
 func (queue *SQSQueue) Produce(ctx context.Context, message string) error {
-	_, err := queue.sqs.SendMessageWithContext(ctx, &sqs.SendMessageInput{
+	_, err := queue.sqs.SendMessage(ctx, &sqs.SendMessageInput{
 		MessageBody: aws.String(message),
 		QueueUrl:    queue.sqsURL,
 	})
@@ -62,19 +68,18 @@ func (queue *SQSQueue) Produce(ctx context.Context, message string) error {
 }
 
 func (queue *SQSQueue) Consume(ctx context.Context, consumer ConsumerFunc) chan error {
-	ticker := time.NewTicker(time.Second)
 	errChan := make(chan error)
 
 	go func(ctx context.Context) {
 		for {
 			select {
-			case <-ticker.C:
+			case <-ctx.Done():
+				return
+			default:
 				err := queue.consume(ctx, consumer)
 				if err != nil {
 					errChan <- err
 				}
-			case <-ctx.Done():
-				return
 			}
 		}
 	}(ctx)
@@ -83,10 +88,11 @@ func (queue *SQSQueue) Consume(ctx context.Context, consumer ConsumerFunc) chan 
 }
 
 func (queue *SQSQueue) consume(ctx context.Context, consumer ConsumerFunc) error {
-	messageResult, err := queue.sqs.ReceiveMessageWithContext(ctx, &sqs.ReceiveMessageInput{
-		MaxNumberOfMessages: aws.Int64(1),
+	messageResult, err := queue.sqs.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		MaxNumberOfMessages: 1,
 		QueueUrl:            queue.sqsURL,
-		VisibilityTimeout:   aws.Int64(sqsVisibilityTimeoutSeconds),
+		VisibilityTimeout:   sqsVisibilityTimeoutSeconds,
+		WaitTimeSeconds:     int32(waitTime.Seconds()),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to receive message from sqs queue: %w", err)
@@ -102,7 +108,7 @@ func (queue *SQSQueue) consume(ctx context.Context, consumer ConsumerFunc) error
 		return fmt.Errorf("failed to consume message: %w", err)
 	}
 
-	if _, err = queue.sqs.DeleteMessageWithContext(ctx, &sqs.DeleteMessageInput{
+	if _, err = queue.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{
 		QueueUrl:      queue.sqsURL,
 		ReceiptHandle: messageResult.Messages[0].ReceiptHandle,
 	}); err != nil {
