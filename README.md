@@ -1,6 +1,21 @@
 SQS Example
 ===============
 
-# Objective
+# Description
 
-Follow this example to learn SQS in Go: https://www.learnaws.org/2021/10/13/aws-go-sdk-sqs-guide/
+Start API:
+```shell
+make api
+```
+
+Start the Worker:
+```shell
+make worker
+```
+
+Create a Job:
+```shell
+curl localhost:8080/jobs -d'{"message": "this is a job"}'
+```
+
+See the Job being consumed by the Worker. 
